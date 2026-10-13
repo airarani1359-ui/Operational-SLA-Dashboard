@@ -1,0 +1,52 @@
+// Operational & SLA Dashboard | Power BI DAX
+// Table: vw_ticket_sla (exported from the MySQL view). Measures live in _Measures.
+
+Total Tickets = COUNTROWS ( vw_ticket_sla )
+
+SLA Compliance % =
+DIVIDE ( SUM ( vw_ticket_sla[sla_met] ), COUNT ( vw_ticket_sla[sla_met] ) )
+
+FRT Compliance % =
+DIVIDE ( SUM ( vw_ticket_sla[frt_met] ), COUNT ( vw_ticket_sla[frt_met] ) )
+
+Avg Resolution Hrs = AVERAGE ( vw_ticket_sla[resolution_hrs] )
+
+Avg CSAT = AVERAGE ( vw_ticket_sla[csat_score] )
+
+Backlog =
+CALCULATE ( [Total Tickets], vw_ticket_sla[status] IN { "Open", "Escalated" } )
+
+// COUNT minus SUM avoids treating blank (unresolved) as 0 = breached
+SLA Breaches =
+COUNT ( vw_ticket_sla[sla_met] ) - SUM ( vw_ticket_sla[sla_met] )
+
+SLA Target % = 0.85
+
+SLA Gap to Target = [SLA Compliance %] - [SLA Target %]
+
+Unhappy CSAT % =
+DIVIDE (
+    CALCULATE ( COUNT ( vw_ticket_sla[csat_score] ), vw_ticket_sla[csat_score] <= 2 ),
+    COUNT ( vw_ticket_sla[csat_score] )
+)
+
+// ---------- Calculated columns (on vw_ticket_sla) ----------
+SLA Outcome =
+IF (
+    ISBLANK ( vw_ticket_sla[sla_met] ),
+    "Not resolved",
+    IF ( vw_ticket_sla[sla_met] = 1, "Within SLA", "Breached" )
+)
+
+Age Bucket =
+VAR hrs =
+    DATEDIFF ( vw_ticket_sla[created_at], DATE ( 2025, 6, 30 ) + TIME ( 23, 59, 59 ), HOUR )
+RETURN
+    IF (
+        vw_ticket_sla[status] IN { "Open", "Escalated" },
+        SWITCH ( TRUE (),
+            hrs <= 24,  "1. 0-24 hrs",
+            hrs <= 72,  "2. 1-3 days",
+            hrs <= 168, "3. 3-7 days",
+            "4. 7+ days" )
+    )
